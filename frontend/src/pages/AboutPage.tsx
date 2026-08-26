@@ -1,0 +1,11 @@
+import { Link } from 'react-router-dom'
+
+const principles = [
+  ['Explain the result', 'Scores should reveal the evidence and assumptions behind them, not hide them behind a black box.'],
+  ['Support the next decision', 'The useful output is a practical experiment or question, not a generic verdict.'],
+  ['Keep founders in control', 'VentureMind helps structure thinking. The founder remains responsible for the decision.'],
+]
+
+export function AboutPage() {
+  return <div className="-mx-4 -my-8 sm:-mx-6"><section className="bg-slate-950 px-4 py-20 text-white sm:px-6"><div className="mx-auto max-w-4xl text-center"><p className="text-sm font-bold uppercase tracking-widest text-accent-300">About VentureMind AI</p><h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-6xl">A clearer way to test a startup idea.</h1><p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">VentureMind AI is a final-year software engineering project designed to help founders turn early assumptions into evidence-focused next steps.</p></div></section><section className="px-4 py-20 sm:px-6"><div className="mx-auto max-w-7xl"><div className="max-w-3xl"><p className="text-sm font-bold uppercase tracking-widest text-brand-600">Our approach</p><h2 className="mt-3 text-3xl font-bold">Helpful AI should make its reasoning visible.</h2><p className="mt-4 leading-7 text-slate-600 dark:text-slate-300">Early startup ideas are uncertain by nature. This platform combines structured inputs, transparent evaluation factors, and practical recommendations to make that uncertainty easier to discuss and test.</p></div><div className="mt-10 grid gap-5 md:grid-cols-3">{principles.map(([title, description]) => <article key={title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-card dark:border-slate-800 dark:bg-slate-900"><h3 className="text-xl font-bold">{title}</h3><p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p></article>)}</div></div></section><section className="bg-brand-50 px-4 py-16 text-center dark:bg-brand-500/10 sm:px-6"><h2 className="text-3xl font-bold">Start with one assumption.</h2><Link className="mt-6 inline-block rounded-lg bg-brand-600 px-5 py-3 text-sm font-bold text-white hover:bg-brand-700" to="/validate">Try rapid validation</Link></section></div>
+}

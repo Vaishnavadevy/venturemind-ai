@@ -1,0 +1,36 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-venturemind}
+      MYSQL_USER: ${MYSQL_USER:-venturemind}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-too}
+    ports:
+      - "3306:3306"
+    volumes:
+      - venturemind_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pchange-me-too"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ../backend
+    environment:
+      APP_ENV: development
+      DATABASE_URL: mysql+pymysql://venturemind:change-me@db:3306/venturemind
+      CORS_ORIGINS: '["http://localhost:5173"]'
+      FRONTEND_URL: http://localhost:5173
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-development-only-change-me}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  venturemind_mysql:
