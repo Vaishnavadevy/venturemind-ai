@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/common/Button";
 import { environment } from "@/config/environment";
 import { useAuth } from "@/features/auth/AuthContext";
@@ -184,6 +184,7 @@ export function StartupLifecyclePage() {
   const [profileAssistantOpen, setProfileAssistantOpen] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState("");
+  const suggestionRequestRef = useRef(0);
   const [competitorResult, setCompetitorResult] = useState<CompetitorSearchResult | null>(null);
   const [competitorLoading, setCompetitorLoading] = useState(false);
   const [competitorError, setCompetitorError] = useState("");
@@ -192,6 +193,7 @@ export function StartupLifecyclePage() {
   const [riskLoading, setRiskLoading] = useState(false);
   const [riskError, setRiskError] = useState("");
   const [riskDetailsOpen, setRiskDetailsOpen] = useState(false);
+  const riskRequestRef = useRef(0);
   const [financialPlan, setFinancialPlan] = useState<FinancialPlan | null>(null);
   const [financialLoading, setFinancialLoading] = useState(false);
   const [financialError, setFinancialError] = useState("");
@@ -386,6 +388,13 @@ export function StartupLifecyclePage() {
 
   const update = (key: keyof Profile, value: string) => {
     setProfile((current) => ({ ...current, [key]: value }));
+    // Suggestions are generated from a snapshot of the name/category. Do not keep
+    // an older suggestion visible after either source field has changed.
+    if (key === "businessName" || key === "category") {
+      suggestionRequestRef.current += 1;
+      setProfileSuggestions(null);
+      setSuggestionsError("");
+    }
     setProfileFinished(false);
     setSaved(false);
     setSyncMessage("");
@@ -393,16 +402,23 @@ export function StartupLifecyclePage() {
 
   const suggestProfileFields = async () => {
     if (!profile.businessName.trim() || !profile.category.trim()) return;
+    const requestBusinessName = profile.businessName.trim();
+    const requestCategory = profile.category.trim();
+    const requestId = suggestionRequestRef.current + 1;
+    suggestionRequestRef.current = requestId;
     setSuggestionsLoading(true);
     setSuggestionsError("");
     try {
       const result = await lifecycleApi.suggestProfileFields({
-        business_name: profile.businessName.trim(),
-        category: profile.category.trim(),
+        business_name: requestBusinessName,
+        category: requestCategory,
         country: asOptional(profile.country),
         city: asOptional(profile.city),
       });
-      setProfileSuggestions(result);
+      // Ignore a late response if the founder changed the input while it loaded.
+      if (suggestionRequestRef.current === requestId) {
+        setProfileSuggestions(result);
+      }
       setProfileAssistantOpen(true);
     } catch {
       setSuggestionsError("Could not get suggestions. Check your backend connection and try again.");
@@ -675,15 +691,25 @@ export function StartupLifecyclePage() {
   };
 
   const analyseRisk = async () => {
+    const requestId = riskRequestRef.current + 1;
+    riskRequestRef.current = requestId;
     setRiskError("");
     setRiskDetailsOpen(false);
     setRiskLoading(true);
     try {
       if (backendEnabled && profileId) {
-        setRiskAssessment(await lifecycleApi.createRiskAssessment(profileId));
-        setSyncMessage("Risk analysis saved to your VentureMind workspace.");
+        const savedAssessment = await lifecycleApi.createRiskAssessment(profileId);
+        // A previous click can finish after a newer request. Only the latest
+        // result is allowed to change the visible saved/error state.
+        if (riskRequestRef.current === requestId) {
+          setRiskAssessment(savedAssessment);
+          setRiskError("");
+          setSyncMessage("Risk analysis saved to your VentureMind workspace.");
+        }
       } else {
-        setRiskAssessment(buildStructuredRiskAssessment());
+        if (riskRequestRef.current === requestId) {
+          setRiskAssessment(buildStructuredRiskAssessment());
+        }
       }
     } catch (error) {
       // A successful POST can be persisted even if a stale client receives an
@@ -692,20 +718,26 @@ export function StartupLifecyclePage() {
       if (backendEnabled && profileId) {
         try {
           const savedAssessment = await lifecycleApi.latestRiskAssessment(profileId);
-          setRiskAssessment(savedAssessment);
-          setRiskError("");
-          setSyncMessage("Risk analysis was saved and reloaded from your VentureMind workspace.");
+          if (riskRequestRef.current === requestId) {
+            setRiskAssessment(savedAssessment);
+            setRiskError("");
+            setSyncMessage("Risk analysis was saved and reloaded from your VentureMind workspace.");
+          }
           return;
         } catch {
           console.error("Risk analysis could not be recovered from the server.", error);
         }
       }
-      setRiskAssessment(buildStructuredRiskAssessment());
-      setRiskError(
-        "The analysis is shown locally, but it was not saved. Update the backend database migration (ai_explanation field), restart the API, then run the analysis again.",
-      );
+      if (riskRequestRef.current === requestId) {
+        setRiskAssessment(buildStructuredRiskAssessment());
+        setRiskError(
+          "The analysis is shown locally because the server could not confirm a saved result. Check the backend log, then try again.",
+        );
+      }
     } finally {
-      setRiskLoading(false);
+      if (riskRequestRef.current === requestId) {
+        setRiskLoading(false);
+      }
     }
   };
 
@@ -749,6 +781,31 @@ export function StartupLifecyclePage() {
     } finally {
       setFinancialLoading(false);
     }
+  };
+
+  const downloadFinancialPlan = () => {
+    if (!financialPlan) return;
+    const csvEscape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const rows = [
+      ["VentureMind AI financial plan"],
+      ["Business", profile.businessName || "Startup"],
+      ["Generated", new Date().toLocaleString()],
+      [],
+      ["Assumption", "Value (LKR or percentage)"],
+      ...Object.entries(financialPlan.assumptions).map(([key, value]) => [key.replaceAll("_", " "), value]),
+      [],
+      ["Forecast metric", "Result"],
+      ...Object.entries(financialPlan.results).map(([key, value]) => [key.replaceAll("_", " "), value]),
+    ];
+    const file = new Blob([rows.map((row) => row.map(csvEscape).join(",")).join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(profile.businessName || "venturemind").trim().replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-financial-plan.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
   const showStructuredAdvice = () => {
     const startup = profile.businessName || "your startup";
@@ -1451,13 +1508,21 @@ export function StartupLifecyclePage() {
                 </p>
               </fieldset>
             </div>
-            <Button
-              className="mt-5"
-              disabled={financialLoading || !riskAssessment}
-              onClick={() => void makeFinancialPlan()}
-            >
-              {financialLoading ? "Calculating…" : "Generate financial plan"}
-            </Button>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button disabled={financialLoading || !riskAssessment} onClick={() => void makeFinancialPlan()}>
+                {financialLoading ? "Saving financial plan…" : "Save and generate financial plan"}
+              </Button>
+              {financialPlan && (
+                <Button variant="secondary" onClick={downloadFinancialPlan}>
+                  Download financial plan (.csv)
+                </Button>
+              )}
+            </div>
+            {financialPlan && (
+              <p className="mt-3 text-sm font-semibold text-emerald-700">
+                ✓ Financial plan saved to your VentureMind workspace.
+              </p>
+            )}
             {financialError && (
               <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700" role="alert">
                 {financialError}

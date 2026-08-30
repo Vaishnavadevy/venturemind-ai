@@ -9,8 +9,16 @@ from app.schemas.common import APIResponse
 router = APIRouter(prefix="/public-advisor")
 
 
+class PublicAdvisorMessage(BaseModel):
+    """A short, in-memory message supplied by the public chat widget."""
+
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=2_000)
+
+
 class PublicAdvisorRequest(BaseModel):
     question: str = Field(min_length=2, max_length=800)
+    history: list[PublicAdvisorMessage] = Field(default_factory=list, max_length=8)
 
 
 class PublicAdvisorReply(BaseModel):
@@ -22,12 +30,19 @@ class PublicAdvisorReply(BaseModel):
 @router.post("", response_model=APIResponse[PublicAdvisorReply])
 def ask_public_advisor(payload: PublicAdvisorRequest) -> APIResponse[PublicAdvisorReply]:
     """Answer a general startup question without collecting a guest profile."""
+    conversation = "\n".join(
+        f"{message.role.title()}: {message.content.strip()}"
+        for message in payload.history
+    )
     prompt = (
         "You are VentureMind AI, a concise startup-planning assistant. "
         "Answer the visitor's general startup question in plain language. "
+        "Use the conversation history only when it is relevant to the new question. "
         "Give at most three practical next actions. Do not invent market facts, "
         "legal requirements, prices, or guarantees. Explain when local research "
-        "or a qualified professional is needed. Do not ask for personal data.\n\n"
+        "or a qualified professional is needed. Do not ask for personal data. "
+        "This is a temporary in-browser conversation and must not be described as saved.\n\n"
+        f"Conversation so far:\n{conversation or '(No previous messages.)'}\n\n"
         f"Visitor question: {payload.question.strip()}"
     )
     try:
